@@ -1,0 +1,98 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  IMAGE_TAG: 'latest'
+  # RESOURCE_GROUP: 'dmc-group'
+  # ACR_NAME: 'testcontainerdmc'
+  # REPOSITORY_NAME: 'my-test-api'
+  # AZURE_SUBSCRIPTION_ID: '37520400-632e-413e-b571-e52d252eb3c6'
+  # AZURE_SERVICE_CONNECTION: 'azure-devops-connection'
+  # ACR_DOCKER_SERVICE_CONNECTION: 'docker-registry-service-connection'
+
+steps:
+  # Step 1: Login to Azure
+  - task: AzureCLI@2
+    displayName: 'Login to Azure'
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az account set --subscription '$(AZURE_SUBSCRIPTION_ID)'
+
+  # Step 2: Create Azure Container Registry if it doesn't exist
+  - task: AzureCLI@2
+    displayName: 'Create Azure Container Registry'
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az acr show --name $(ACR_NAME) --resource-group $(RESOURCE_GROUP) || \
+        az acr create --resource-group $(RESOURCE_GROUP) --name $(ACR_NAME) --sku Basic
+
+  # Step 3: Enable ACR Admin User
+  - task: AzureCLI@2
+    displayName: 'Enable ACR Admin User'
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az acr update -n $(ACR_NAME) --admin-enabled true
+
+  # Step 4: Retrieve ACR Credentials
+  - task: AzureCLI@2
+    displayName: 'Retrieve ACR Credentials'
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        ACR_USERNAME=$(az acr credential show --name $(ACR_NAME) --query username -o tsv)
+        ACR_PASSWORD=$(az acr credential show --name $(ACR_NAME) --query passwords[0].value -o tsv)
+
+  # Step 5: Build Docker Image
+  - task: Docker@2
+    displayName: 'Build Docker Image'
+    inputs:
+      containerRegistry: '$(ACR_DOCKER_SERVICE_CONNECTION)'
+      repository: '$(REPOSITORY_NAME)'
+      dockerfile: 'EjercicioFinal1/Dockerfile'
+      context: 'EjercicioFinal1'
+      tags: '$(IMAGE_TAG)'
+
+  # Step 6: Push Docker Image to ACR
+  - task: Docker@2
+    displayName: 'Push Docker Image to ACR'
+    inputs:
+      containerRegistry: '$(ACR_DOCKER_SERVICE_CONNECTION)'
+      repository: '$(REPOSITORY_NAME)'
+      command: 'push'
+      tags: '$(IMAGE_TAG)'
+
+  # Step 7: Deploy to Azure Container Instances
+  - task: AzureCLI@2
+    displayName: 'Deploy to Azure Container Instances'
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az container create \
+          --resource-group $(RESOURCE_GROUP) \
+          --name $(REPOSITORY_NAME)-container \
+          --image $(ACR_NAME).azurecr.io/$(REPOSITORY_NAME):$(IMAGE_TAG) \
+          --cpu 1 \
+          --memory 1 \
+          --registry-login-server $(ACR_NAME).azurecr.io \
+          --registry-username $(ACR_USERNAME) \
+          --registry-password $(ACR_PASSWORD) \
+          --dns-name-label $(REPOSITORY_NAME)-dns \
+          --ports 8000

@@ -1,0 +1,70 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Step 0: Build the Docker image from the Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest', '.']
+
+  # Step 1: Check if the Artifact Repository exists and create it if not
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        if ! gcloud artifacts repositories describe $_REPOSITORY_NAME --location=$_REGION --format='value(name)'; then
+          echo "Repository $_REPOSITORY_NAME does not exist. Creating repository..."
+          gcloud artifacts repositories create $_REPOSITORY_NAME --repository-format=docker --location=$_REGION
+          echo "Repository $_REPOSITORY_NAME created."
+        else
+          echo "Repository $_REPOSITORY_NAME already exists."
+        fi
+
+  # Step 2: Push the image to Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest']
+
+  # Step 3: Deploy the image to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '$_CLOUD_RUN_SERVICE'
+      - '--image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest'
+      - '--region=$_REGION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=2Gi'
+
+  # Step 4: Add delay before checking status
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "Adding delay before checking service status..."
+        sleep 30  # Delay for 60 seconds before starting status check
+
+  # Step 5: Check status and use the URL of the deployed Cloud Run service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        set -e  
+        while [ "$(gcloud run services describe mle-template-service --region=us-east4 --platform=managed --format='value(status.conditions[0].status)')" != "True" ]; do 
+          echo "Waiting for service to become stable..."
+          sleep 10
+        done 
+        echo "Service is stable" 
+        curl "$(gcloud run services describe mle-template-service --region=us-east4 --platform=managed --format='value(status.url)')/pipeline" 
+
+
+substitutions:
+  _PROJECT_ID: 'astral-reef-391421'
+  _REGION: 'us-east4'
+  _REPOSITORY_NAME: 'repo-mle-template'
+  _IMAGE_NAME: 'mle-template'
+  _CLOUD_RUN_SERVICE: 'mle-template-service'
+  

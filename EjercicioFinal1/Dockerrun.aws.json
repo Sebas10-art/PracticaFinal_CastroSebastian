@@ -1,0 +1,11 @@
+{
+    "AWSEBDockerrunVersion": "1",
+    "Image": {
+      "Name": "533267339745.dkr.ecr.us-east-2.amazonaws.com/my-predict-api:latest"
+    },
+    "Ports": [
+      {
+        "ContainerPort": 8501
+      }
+    ]
+  }

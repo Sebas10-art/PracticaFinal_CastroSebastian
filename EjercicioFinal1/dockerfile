@@ -1,0 +1,24 @@
+
+FROM python:3.10.4
+
+
+WORKDIR /app
+
+
+COPY requirements.txt ./
+COPY app.py ./
+COPY utils.py ./
+
+# Instala las dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Exponer el puerto donde se ejecutará el app por medio de uvicorn
+EXPOSE 8501
+
+
+# Establece el comando predeterminado para ejecutar el contenedor. Este comando inicia un servidor Uvicorn
+# que aloja una aplicación FastAPI definida en el módulo app (app.py) y escucha en todas las
+# interfaces de red (0.0.0.0) en el puerto 8501. Esta configuración es típica para que una aplicación web
+# sea accesible desde fuera del contenedor.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8501"]
